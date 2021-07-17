@@ -1,5 +1,6 @@
-
 import React from 'react';
+import nookies from 'nookies';
+import jwt from 'jsonwebtoken';
 import MainGrid from '../src/components/MainGrid';
 import Box from '../src/components/Box';
 import { AlurakutMenu, AlurakutProfileSidebarMenuDefault, OrkutNostalgicIconSet } from '../src/lib/AlurakutCommons';
@@ -25,16 +26,36 @@ function ProfileSidebar(propriedades) {
   )
 }
 
+function ProfileRelationsBox(propriedades) {
+  return (
+
+    <ProfileRelationsBoxWrapper>
+      <h2 className="smallTitle">
+        {propriedades.title} ({propriedades.items.length})
+      </h2>
+      <ul>
+    {/*     {seguidores.map((itemAtual) => {
+          return (
+            <li key={itemAtual}>
+              <a href={`https://github.com/${itemAtual}.png`}>
+                <img src={itemAtual.image} />
+                <span>{itemAtual}</span>
+              </a>
+            </li>
+          )
+        })} */}
+      </ul>
+    </ProfileRelationsBoxWrapper>
+
+  );
+}
 
 
-export default function Home() {
+
+export default function Home(props) {
   
-  const githubUser = 'giljrsantos';
-  const [comunidades, setComunidades] = React.useState([{
-    id: '1313131654564165434653465344',
-    title: 'Eu odeio acordar cedo',
-    image: 'https://alurakut.vercel.app/capa-comunidade-01.jpg'
-  }]);
+  const githubUser = props.githubUser;
+  const [comunidades, setComunidades] = React.useState([]);
   //const comunidades = ['AluraKut'];
   const pessoasFavoritas = [
     'juunegreiros', 
@@ -44,6 +65,46 @@ export default function Home() {
     'miqueiasandr', 
     'patrickhl94'
   ]
+
+  // 1 - Criar um box que vai ter um map baseado nos items do array que pegamos do gitHub
+    const [seguidores, setSeguidores] = React.useState([]);;
+    React.useEffect(function(){
+      //GET
+      fetch(`https://api.github.com/users/${props.githubUser}/followers`)
+      .then(function(respostaDoServidor){
+        return respostaDoServidor.json();
+      })
+      .then(function(respostaCompleta){
+        setSeguidores(respostaCompleta);
+      });
+
+      // API GraphQL
+      fetch('https://graphql.datocms.com/', {
+        method: 'POST',
+        headers: {
+          'Authorization': '004e4a77d7e7468754311efb0f9ab9',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ "query": `query {
+          allCommunities{
+            id
+            title
+            imageUrl
+            creatorSlug
+          }
+
+        }` })
+      })
+      .then((response) => response.json()) // Pega o retorno do response.json() e ja retorna tudo
+      .then((respostaCompleta) => {
+        const comunidadesVindoDoDato = respostaCompleta.data.allCommunities
+        setComunidades(comunidadesVindoDoDato);
+        console.log(comunidadesVindoDoDato)
+      })
+  
+
+    }, []);
 
   return (
     <>
@@ -69,13 +130,25 @@ export default function Home() {
               const dadosDoForm = new FormData(e.target);
 
               const comunidade = {
-                id: new Date().toISOString(),
                 title: dadosDoForm.get('title'),
-                image: dadosDoForm.get('image'),
+                imageUrl: dadosDoForm.get('image'),
+                creatorSlug: githubUser,
               }
 
-              const comunidadesAtualizadas = [...comunidades, comunidade];
-              setComunidades(comunidadesAtualizadas);
+              fetch('/api/comunidades', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(comunidade)
+              })
+              .then( async (response) => {
+                const dados = await response.json();
+                console.log(dados.registroCriado);
+                const comunidade = dados.registroCriado;
+                const comunidadesAtualizadas = [...comunidades, comunidade];
+                setComunidades(comunidadesAtualizadas);
+              });
               
             }}>
               <div>
@@ -103,6 +176,8 @@ export default function Home() {
         </div>      
 
         <div className='profileRelationsArea' style={{ gridArea: 'profileRelationsArea' }}>
+
+          <ProfileRelationsBox title="Seguidores" items={seguidores} />
         
           <ProfileRelationsBoxWrapper>
             <h2 className="smallTitle">
@@ -112,8 +187,8 @@ export default function Home() {
               {comunidades.map((itemAtual) => {
                 return (
                   <li key={itemAtual.id}>
-                    <a href={`/users/${itemAtual.title}`}>
-                      <img src={itemAtual.image} />
+                    <a href={`/communities/${itemAtual.title}`}>
+                      <img src={itemAtual.imageUrl} />
                       <span>{itemAtual.title}</span>
                     </a>
                   </li>
@@ -148,4 +223,33 @@ export default function Home() {
       </MainGrid>
     </>
   )
+}
+
+
+export async function getServerSideProps(context){
+  const cookies = nookies.get(context);
+  const token = cookies.USER_TOKEN;
+
+
+  const { isAuthenticated } = await fetch('https://alurakut.vercel.app/api/auth', {
+    headers: {
+      Authorization: token
+    }
+  })
+  .then((resposta) => resposta.json())
+
+  if(!isAuthenticated){
+    return {
+      redirect: {
+        destination: '/login',
+        permanent: false,
+      }
+    }
+  }
+  const { githubUser } = jwt.decode(token);
+  return {
+    props: {
+      githubUser
+    },
+  }
 }
